@@ -1,132 +1,112 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MNIST Digit Recognizer (Mobile Camera)</title>
+    <title>MNIST Digit Recognizer (Canvas)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            padding: 10px;
+        body { font-family: Arial, sans-serif; text-align: center; padding: 10px; }
+        canvas { border: 2px solid #333; border-radius: 8px; touch-action: none; }
+        button {
+            background-color: #4CAF50; color: white; font-size: 1.3em;
+            padding: 12px 25px; margin: 10px; border: none; border-radius: 10px; cursor: pointer;
         }
-        video {
-            border: 2px solid #333;
-            border-radius: 8px;
-        }
-        #predictBtn {
-            background-color: #4CAF50;
-            color: white;
-            font-size: 1.5em;
-            padding: 15px 30px;
-            margin: 20px auto;
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            display: block;
-        }
-        #predictBtn:hover {
-            background-color: #45a049;
-        }
-        #result, #status {
-            font-size: 1.3em;
-            margin-top: 15px;
-        }
+        button:hover { background-color: #45a049; }
+        #result, #status { font-size: 1.3em; margin-top: 15px; }
     </style>
 </head>
 <body>
-    <h2>Capture a handwritten digit</h2>
-    <video id="video" width="280" height="280" autoplay></video>
+    <h2>Draw a digit (0–9)</h2>
+    <canvas id="drawCanvas" width="280" height="280"></canvas>
+    <br>
     <button id="predictBtn">Predict</button>
+    <button id="clearBtn">Clear</button>
     <h3 id="status">Loading model...</h3>
     <h3 id="result"></h3>
 
-    <!-- ONNX Runtime Web -->
     <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 
     <script>
-        const video = document.getElementById("video");
+        const canvas = document.getElementById("drawCanvas");
+        const ctx = canvas.getContext("2d");
+        const predictBtn = document.getElementById("predictBtn");
+        const clearBtn = document.getElementById("clearBtn");
         const resultEl = document.getElementById("result");
         const statusEl = document.getElementById("status");
-        let session;
 
-        // Load ONNX model
-        ort.InferenceSession.create("cnn_model_quant.onnx").then(s => {
-            session = s;
-            statusEl.innerText = "Model loaded. Ready to predict!";
-        }).catch(err => {
-            statusEl.innerText = "Failed to load model!";
-            console.error("ONNX model load error:", err);
+        // --- Canvas setup: black background, white drawing ---
+        ctx.fillStyle = "black";
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.strokeStyle = "white";
+        ctx.lineWidth = 15;
+        ctx.lineCap = "round";
+
+        let drawing = false;
+
+        // Mouse events
+        canvas.addEventListener("mousedown", e => { drawing = true; ctx.beginPath(); });
+        canvas.addEventListener("mouseup", e => { drawing = false; });
+        canvas.addEventListener("mouseout", e => { drawing = false; });
+        canvas.addEventListener("mousemove", e => { if(drawing){ draw(e.offsetX, e.offsetY); } });
+
+        // Touch events
+        canvas.addEventListener("touchstart", e => { e.preventDefault(); drawing=true; const rect=canvas.getBoundingClientRect(); ctx.beginPath(); draw(e.touches[0].clientX-rect.left, e.touches[0].clientY-rect.top); });
+        canvas.addEventListener("touchmove", e => { e.preventDefault(); if(drawing){ const rect=canvas.getBoundingClientRect(); draw(e.touches[0].clientX-rect.left, e.touches[0].clientY-rect.top); } });
+        canvas.addEventListener("touchend", e => { drawing=false; });
+
+        function draw(x,y){
+            ctx.lineTo(x,y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x,y);
+        }
+
+        clearBtn.addEventListener("click", () => {
+            ctx.fillRect(0,0,canvas.width,canvas.height);
+            resultEl.innerText = "";
         });
 
-        // Open back camera with fallback
-        async function openCamera() {
-            const constraints = { video: { facingMode: { ideal: "environment" } } };
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-            } catch (err) {
-                console.warn("Back camera not available, using default camera.", err);
-                try {
-                    const fallback = await navigator.mediaDevices.getUserMedia({ video: true });
-                    video.srcObject = fallback;
-                } catch (err2) {
-                    console.error("No camera available.", err2);
-                    statusEl.innerText = "No camera available!";
-                }
-            }
-        }
-        openCamera();
+        // --- Load ONNX model ---
+        let session;
+        ort.InferenceSession.create("cnn_model_quant.onnx").then(s => {
+            session = s;
+            statusEl.innerText = "Model loaded. Draw a digit and press Predict!";
+        }).catch(err => { statusEl.innerText = "Failed to load model!"; console.error(err); });
 
-        // Preprocess function: crop center, scale to 28x28, grayscale, invert
-        function preprocessImage(video, invert=true) {
-            // Crop center of video for better digit capture
-            const cropSize = Math.min(video.videoWidth, video.videoHeight);
-            const sx = (video.videoWidth - cropSize) / 2;
-            const sy = (video.videoHeight - cropSize) / 2;
+        // --- Preprocess canvas for model ---
+        function preprocessCanvas(canvas){
+            const tmpCanvas = document.createElement("canvas");
+            tmpCanvas.width = 28;
+            tmpCanvas.height = 28;
+            const tmpCtx = tmpCanvas.getContext("2d");
+            tmpCtx.drawImage(canvas, 0, 0, 28, 28);
 
-            const canvas = document.createElement("canvas");
-            canvas.width = 28;
-            canvas.height = 28;
-            const ctx = canvas.getContext("2d");
-
-            // Draw cropped video frame scaled to 28x28
-            ctx.drawImage(video, sx, sy, cropSize, cropSize, 0, 0, 28, 28);
-
-            const imgData = ctx.getImageData(0,0,28,28);
+            const imgData = tmpCtx.getImageData(0,0,28,28);
             const input = new Float32Array(28*28);
 
-            for (let i=0; i<28*28; i++) {
-                const r = imgData.data[i*4];
-                const g = imgData.data[i*4+1];
-                const b = imgData.data[i*4+2];
-                const gray = 0.299*r + 0.587*g + 0.114*b;
-
-                // Invert for black digit on white paper
-                let val = invert ? 1.0 - (gray/255.0) : gray/255.0;
-
-                // Optional thresholding (makes digit crisper)
-                input[i] = val > 0.5 ? 1.0 : 0.0;
+            for(let i=0;i<28*28;i++){
+                const r=imgData.data[i*4], g=imgData.data[i*4+1], b=imgData.data[i*4+2];
+                const gray=0.299*r+0.587*g+0.114*b;
+                // Normalize and invert: white digit on black
+                input[i] = gray/255; // already white digit on black background
             }
-
             return new ort.Tensor('float32', input, [1,28,28,1]);
         }
 
-        // Predict button click
-        document.getElementById("predictBtn").addEventListener("click", async () => {
-            if (!session) { alert("Model not loaded yet!"); return; }
-
-            const tensor = preprocessImage(video, true);
-
-            try {
+        // --- Predict ---
+        predictBtn.addEventListener("click", async () => {
+            if(!session){ alert("Model not loaded yet!"); return; }
+            const tensor = preprocessCanvas(canvas);
+            try{
                 const output = await session.run({input: tensor});
                 const preds = output[Object.keys(output)[0]].data;
                 const predLabel = preds.indexOf(Math.max(...preds));
                 resultEl.innerText = "Predicted digit: " + predLabel;
-            } catch (err) {
+            }catch(err){
                 console.error("Inference error:", err);
                 resultEl.innerText = "Prediction failed!";
             }
         });
+
     </script>
 </body>
 </html>
