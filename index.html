@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>MNIST Digit Recognizer (Camera)</title>
+    <title>MNIST Digit Recognizer (Back Camera)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 </head>
 <body>
@@ -23,10 +23,18 @@
         // Load ONNX quantized model
         ort.InferenceSession.create("cnn_model_quant.onnx").then(s => session = s);
 
-        // Access mobile camera
-        navigator.mediaDevices.getUserMedia({ video: true })
+        // Try to access the back camera first
+        navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: { exact: "environment" } } 
+        })
         .then(stream => { video.srcObject = stream; })
-        .catch(err => { console.error("Camera access error:", err); });
+        .catch(err => { 
+            console.warn("Back camera not available, using default camera.", err);
+            // fallback to any camera
+            navigator.mediaDevices.getUserMedia({ video: true })
+                .then(stream => { video.srcObject = stream; })
+                .catch(err => { console.error("Camera access failed:", err); });
+        });
 
         // Predict on button click
         document.getElementById("predictBtn").addEventListener("click", async () => {
