@@ -85,5 +85,14 @@ https://snigdha-c.github.io/CNN-Based-Handwritten-Digit-Recognition-on-Edge-Devi
 
 ## ✅ Conclusion
 - **End-to-end ML pipeline from training to deployment**  
-  The project demonstrates the complete workflow from model training and optimization to deployment and inference on an edge device.
+The project demonstrates the complete workflow from model training and optimization to deployment and inference on an edge device.
+
 ---
+
+## ⚡ Future Work
+- Working on applying similar techniques to Hand Sign Language Detection Project.
+- Improve performance and minimize incorrect predictions.
+- Explore deployment on other edge devices such as raspberry pi.
+
+---
+  
